@@ -22,14 +22,17 @@ class DuplicateQualifierTypeError(Exception):
     applied to an observation expression (i.e. not on some parenthesized group
     of which the observation expression is a member).
     """
-    def __init__(self, qual_type):
+    def __init__(self, qual_type, token):
         """
         Initialize this exception instance.
 
         :param qual_type: The qualifier type which was found to be duplicated.
             Must be a member of the QualType enum.
+        :param token: The token where the duplicate qualifier starts.  Used
+            to report the location of the offending qualifier.
         """
-        message = "Duplicate qualifier type encountered: " + qual_type.name
+        message = "Duplicate qualifier type encountered at line {0}:{1}: {2}".format(
+            token.line, token.column, qual_type.name)
 
         super(DuplicateQualifierTypeError, self).__init__(message)
 
@@ -43,10 +46,10 @@ class ValidationListener(STIXPatternListener):
     def __init__(self):
         self.__qual_types = None
 
-    def __check_qualifier_type(self, qual_type):
+    def __check_qualifier_type(self, qual_type, token):
         if self.__qual_types is not None:
             if qual_type in self.__qual_types:
-                raise DuplicateQualifierTypeError(qual_type)
+                raise DuplicateQualifierTypeError(qual_type, token)
             else:
                 self.__qual_types.add(qual_type)
 
@@ -54,16 +57,22 @@ class ValidationListener(STIXPatternListener):
         self.__qual_types = set()
 
     def exitObservationExpressionCompound(self, ctx):
-        self.__qual_types = None
+        # A parenthesized group is itself an observation expression, so
+        # qualifiers directly applied to it must be tracked too: start a
+        # fresh scope rather than disabling the check.
+        self.__qual_types = set()
 
     def exitObservationExpressionWithin(self, ctx):
-        self.__check_qualifier_type(QualType.WITHIN)
+        self.__check_qualifier_type(QualType.WITHIN,
+                                    ctx.withinQualifier().start)
 
     def exitObservationExpressionRepeated(self, ctx):
-        self.__check_qualifier_type(QualType.REPEATS)
+        self.__check_qualifier_type(QualType.REPEATS,
+                                    ctx.repeatedQualifier().start)
 
     def exitObservationExpressionStartStop(self, ctx):
-        self.__check_qualifier_type(QualType.STARTSTOP)
+        self.__check_qualifier_type(QualType.STARTSTOP,
+                                    ctx.startStopQualifier().start)
 
 
 def run_validator(pattern):

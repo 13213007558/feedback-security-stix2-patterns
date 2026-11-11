@@ -51,13 +51,26 @@ FAIL_CASES = [
     ("[file:hashes.'SHA-256' = 'f00']",  # Malformed hash value
         "FAIL: 'f00' is not a valid SHA-256 hash"),
     ("[win-registry-key:key = 'hkey_local_machine\\\\foo\\\\bar'] WITHIN 5 SECONDS WITHIN 6 SECONDS",
-        "FAIL: Duplicate qualifier type encountered: WITHIN"),
+        "FAIL: Duplicate qualifier type encountered at line 1:73: WITHIN"),
     ("([win-registry-key:key = 'hkey_local_machine\\\\foo\\\\bar'] REPEATS 2 TIMES REPEATS 3 TIMES)",
-        "FAIL: Duplicate qualifier type encountered: REPEATS"),
+        "FAIL: Duplicate qualifier type encountered at line 1:73: REPEATS"),
     ("[win-registry-key:key = 'hkey_local_machine\\\\foo\\\\bar'] "
      "START t'2016-06-01T01:30:00.123Z' STOP t'2016-06-01T02:20:00.123Z' "
      "START t'2016-06-01T01:30:00.123Z' STOP t'2016-06-01T02:20:00.123Z'",
-        "FAIL: Duplicate qualifier type encountered: STARTSTOP"),
+        "FAIL: Duplicate qualifier type encountered at line 1:123: STARTSTOP"),
+    # Duplicate qualifiers directly applied to a parenthesized observation
+    # expression must also be rejected (minimal samples which escaped the
+    # original traversal logic).
+    ("([win-registry-key:key = 'hkey_local_machine\\\\foo\\\\bar']) WITHIN 5 SECONDS WITHIN 6 SECONDS",
+        "FAIL: Duplicate qualifier type encountered at line 1:75: WITHIN"),
+    ("([file:name = 'a'] AND [file:size = 5]) WITHIN 5 SECONDS WITHIN 6 SECONDS",
+        "FAIL: Duplicate qualifier type encountered at line 1:57: WITHIN"),
+    ("([file:name = 'a'] OR [file:size = 5]) REPEATS 2 TIMES REPEATS 3 TIMES",
+        "FAIL: Duplicate qualifier type encountered at line 1:55: REPEATS"),
+    ("([file:name = 'a']) "
+     "START t'2016-06-01T01:30:00Z' STOP t'2016-06-01T02:20:00Z' "
+     "START t'2016-06-01T03:00:00Z' STOP t'2016-06-01T04:00:00Z'",
+        "FAIL: Duplicate qualifier type encountered at line 1:79: STARTSTOP"),
     # TODO: add more failing test cases.
 ]
 
@@ -146,8 +159,21 @@ PASS_CASES = [
     "[foo:bar=1] REPEATS 9 TIMES",
     "[network-traffic:start = '2018-04-20T12:36:24.558Z']",
     "( [(network-traffic:dst_port IN(443,6443,8443) AND network-traffic:src_packets != 0) ])",  # Misplaced whitespace
-    "([win-registry-key:key = 'hkey_local_machine\\\\foo\\\\bar']) WITHIN 5 SECONDS WITHIN 6 SECONDS",
     "([win-registry-key:key = 'hkey_local_machine\\\\foo\\\\bar'] REPEATS 2 TIMES) REPEATS 2 TIMES",
+    # Qualifiers on sibling observation expressions must not interfere with
+    # each other: each qualifier belongs to its own expression.
+    "[file:name = 'a'] WITHIN 5 SECONDS AND [file:size = 5] WITHIN 6 SECONDS",
+    "[file:name = 'a'] REPEATS 2 TIMES OR [file:size = 5] REPEATS 3 TIMES",
+    "[file:name = 'a'] WITHIN 5 SECONDS FOLLOWEDBY [file:size = 5] WITHIN 6 SECONDS",
+    # A qualifier on an inner group and one on the enclosing group apply to
+    # different observation expressions.
+    "([file:name = 'a'] WITHIN 5 SECONDS) WITHIN 6 SECONDS",
+    "(([file:name = 'a'] WITHIN 5 SECONDS) AND [file:size = 5]) WITHIN 6 SECONDS",
+    "([file:name = 'a'] WITHIN 5 SECONDS AND [file:size = 5] WITHIN 6 SECONDS) WITHIN 7 SECONDS",
+    "([file:name = 'a'] AND [file:size = 5]) WITHIN 5 SECONDS FOLLOWEDBY "
+    "([file:name = 'b'] OR [file:size = 6]) WITHIN 6 SECONDS",
+    # Different qualifier types on the same observation expression are fine.
+    "([file:name = 'a'] AND [file:size = 5]) REPEATS 2 TIMES WITHIN 5 SECONDS",
     "[network-traffic:src_port = 37020 AND user-account:user_id = 'root'] "
     "START t'2016-06-01T01:30:00.123Z' STOP t'2016-06-01T02:20:00.123Z' OR "
     "[ipv4-addr:value = '192.168.122.83'] "
@@ -182,3 +208,46 @@ def test_timestamp_fail_patterns(test_input, test_output):
     pass_test, errors = validate(test_input, stix_version='2.1', ret_errs=True, print_errs=True)
     assert errors[0].startswith(test_output)
     assert pass_test is False
+
+
+# Patterns used to verify that repeated validations in the same process do
+# not leak qualifier-tracking state into one another.
+SEQUENTIAL_CASES = [
+    # A failing pattern must not poison subsequent validations...
+    ("([file:name = 'a']) WITHIN 5 SECONDS WITHIN 6 SECONDS", False),
+    ("[file:name = 'a'] WITHIN 5 SECONDS AND [file:size = 5] WITHIN 6 SECONDS", True),
+    ("[file:name = 'a'] WITHIN 5 SECONDS WITHIN 6 SECONDS", False),
+    ("([file:name = 'a'] WITHIN 5 SECONDS) WITHIN 6 SECONDS", True),
+    # ...and a passing pattern must not mask a later failure.
+    ("([file:name = 'a'] AND [file:size = 5]) REPEATS 2 TIMES REPEATS 3 TIMES", False),
+    ("[file:name = 'a'] REPEATS 2 TIMES FOLLOWEDBY [file:size = 5] REPEATS 3 TIMES", True),
+]
+
+
+def test_sequential_validations_do_not_interfere():
+    """
+    Validate several patterns back to back in one process and check that
+    each result only depends on its own pattern.
+    """
+    results = [validate(pattern, stix_version='2.1') for pattern, _ in SEQUENTIAL_CASES]
+    assert results == [expected for _, expected in SEQUENTIAL_CASES]
+
+    # Repeat the whole sequence: results must be stable across runs.
+    results = [validate(pattern, stix_version='2.1') for pattern, _ in SEQUENTIAL_CASES]
+    assert results == [expected for _, expected in SEQUENTIAL_CASES]
+
+
+def test_sequential_validations_across_versions():
+    """
+    Interleave 2.0 and 2.1 validations in one process.  The 2.0 validator
+    performs no duplicate-qualifier check, so its results must stay
+    unaffected by the 2.1 qualifier tracking (and vice versa).
+    """
+    duplicate = "[file:name = 'a'] WITHIN 5 SECONDS WITHIN 6 SECONDS"
+    scoped = "[file:name = 'a'] WITHIN 5 SECONDS AND [file:size = 5] WITHIN 6 SECONDS"
+
+    assert validate(duplicate, stix_version='2.1') is False
+    assert validate(duplicate, stix_version='2.0') is True
+    assert validate(scoped, stix_version='2.1') is True
+    assert validate(duplicate, stix_version='2.1') is False
+    assert validate(scoped, stix_version='2.0') is True
