@@ -9,6 +9,14 @@ CHANGELOG
 * Add Python 3.13 & Python 3.14 support
 * Add automated grammar regeneration script
 * Fix documentation to use Python3 instead of Python2 for ANTLR generation
+* Add ``stix2patterns.migration`` library entry point and
+  ``stix2-pattern-migration`` command that validate each pattern against both
+  STIX 2.0 and 2.1 and emit an offline migration report preserving the original
+  text and both real parse results; patterns are classified but never rewritten
+* Reject unknown STIX versions with ``UnknownSTIXVersionError`` instead of
+  silently falling back to 2.0; an explicitly supplied version is always
+  honoured and never overridden by the default (2.1)
+* Export ``SUPPORTED_VERSIONS`` from the package
 
 2.0.0 - Released 2022-03-31
 ---------------------------

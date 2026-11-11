@@ -8,18 +8,54 @@ import argparse
 
 from antlr4 import InputStream
 
-from . import DEFAULT_VERSION
-from .exceptions import STIXPatternErrorListener  # noqa: F401
+from . import DEFAULT_VERSION, SUPPORTED_VERSIONS
+from .exceptions import STIXPatternErrorListener, UnknownSTIXVersionError  # noqa: F401
 from .helpers import brackets_check
 from .v20.validator import run_validator as run_validator20
 from .v21.validator import run_validator as run_validator21
+
+_VERSION_VALIDATORS = {
+    '2.0': run_validator20,
+    '2.1': run_validator21,
+}
+
+
+def resolve_stix_version(stix_version):
+    """
+    Resolve a caller-supplied STIX version to one of the validators this
+    library supports.
+
+    An explicit version is always honoured: it is matched exactly against the
+    supported versions and an unknown value raises ``UnknownSTIXVersionError``
+    rather than silently falling back to any default.  ``None`` selects the
+    library default.
+
+    :param stix_version: The requested STIX version (e.g. ``'2.0'``/``'2.1'``),
+        or ``None`` for the library default.
+    :return: One of the strings in ``SUPPORTED_VERSIONS``.
+    :raises UnknownSTIXVersionError: If the version is not supported.
+    """
+    if stix_version is None:
+        return DEFAULT_VERSION
+
+    if stix_version not in SUPPORTED_VERSIONS:
+        raise UnknownSTIXVersionError(stix_version, SUPPORTED_VERSIONS)
+
+    return stix_version
 
 
 def run_validator(pattern, stix_version=DEFAULT_VERSION):
     """
     Validates a pattern against the STIX Pattern grammar.  Error messages are
     returned in a list.  The test passed if the returned list is empty.
+
+    The requested ``stix_version`` is matched exactly.  Passing a version this
+    library does not support raises ``UnknownSTIXVersionError``; it is never
+    silently validated against a different version.  Pass ``None`` (or omit the
+    argument) to use the library default.
     """
+    version = resolve_stix_version(stix_version)
+
     if isinstance(pattern, str):
         pattern_str = pattern
         pattern = InputStream(pattern)
@@ -28,10 +64,7 @@ def run_validator(pattern, stix_version=DEFAULT_VERSION):
         pattern_str = pattern.readline()
         pattern.seek(0)
 
-    if stix_version == '2.1':
-        err_messages = run_validator21(pattern)
-    else:
-        err_messages = run_validator20(pattern)
+    err_messages = _VERSION_VALIDATORS[version](pattern)
 
     if not brackets_check(pattern_str):
         err_messages.insert(
@@ -74,8 +107,14 @@ def main():
                         type=argparse.FileType("r"))
     parser.add_argument('-v', '--version',
                         default=DEFAULT_VERSION,
-                        help="Specify version of STIX 2 specification to validate against.")
+                        help="Specify version of STIX 2 specification to validate against. "
+                             "Supported versions: %s." % ", ".join(SUPPORTED_VERSIONS))
     args = parser.parse_args()
+
+    try:
+        resolve_stix_version(args.version)
+    except UnknownSTIXVersionError as exc:
+        parser.error(str(exc))
 
     pass_count = fail_count = 0
 

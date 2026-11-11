@@ -46,6 +46,7 @@ setup(
     entry_points={
         'console_scripts': [
             'validate-patterns = stix2patterns.validator:main',
+            'stix2-pattern-migration = stix2patterns.migration:main',
         ],
     },
     classifiers=[

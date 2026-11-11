@@ -26,3 +26,22 @@ class ParserErrorListener(ErrorListener):
 class ParseException(Exception):
     """Represents a parse error."""
     pass
+
+
+class UnknownSTIXVersionError(ValueError):
+    """
+    Raised when a caller requests a STIX specification version this library
+    does not understand.  The library never silently falls back to a default
+    version in this situation: an explicit, unsupported version is always an
+    error.
+    """
+    def __init__(self, version, supported_versions):
+        self.version = version
+        self.supported_versions = tuple(supported_versions)
+
+        message = (
+            "Unknown STIX version %r. Supported versions are: %s."
+            % (version, ", ".join(self.supported_versions))
+        )
+
+        super(UnknownSTIXVersionError, self).__init__(message)
