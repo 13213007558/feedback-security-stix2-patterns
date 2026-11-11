@@ -21,6 +21,11 @@ def run_validator(pattern):
     lexer = STIXPatternLexer(pattern)
     # it always adds a console listener by default... remove it.
     lexer.removeErrorListeners()
+    # Attach our own listener so that a lexer-level recognition error is
+    # collected instead of being silently recovered past (the default lexer
+    # recovery skips the offending character and keeps tokenizing, which could
+    # leave a legal-looking pattern behind).
+    lexer.addErrorListener(parseErrListener)
 
     stream = CommonTokenStream(lexer)
 

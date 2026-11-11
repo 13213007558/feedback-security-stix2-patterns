@@ -59,11 +59,15 @@ class Pattern(object):
         in_ = antlr4.InputStream(pattern_str)
         lexer = STIXPatternLexer(in_)
         lexer.removeErrorListeners()  # remove the default "console" listener
+        error_listener = ParserErrorListener()
+        # Collect lexer-level recognition errors too.  Without this, the
+        # default lexer recovery (skip the offending character and continue)
+        # could silently drop bad input while the parser still succeeds.
+        lexer.addErrorListener(error_listener)
         token_stream = antlr4.CommonTokenStream(lexer)
 
         parser = STIXPatternParser(token_stream)
         parser.removeErrorListeners()  # remove the default "console" listener
-        error_listener = ParserErrorListener()
         parser.addErrorListener(error_listener)
 
         # I found no public API for this...
@@ -84,6 +88,12 @@ class Pattern(object):
         try:
             tree = parser.pattern()
             # print(tree.toStringTree(recog=parser))
+
+            # A lexer recognition error may have been recovered from while the
+            # parser still produced a tree; treat it as a hard failure rather
+            # than silently accepting the trimmed input.
+            if hasattr(error_listener, "error_message"):
+                raise ParseException(error_listener.error_message)
 
             return tree
         except antlr4.error.Errors.ParseCancellationException as e:
