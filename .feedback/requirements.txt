@@ -1,0 +1,6 @@
+antlr4-python3-runtime==4.13.2
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.7.0
+pygments==2.21.0
+pytest==9.2.0
