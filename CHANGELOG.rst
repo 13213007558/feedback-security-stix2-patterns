@@ -5,6 +5,10 @@ CHANGELOG
 2.1.0 - Not Yet Released
 ------------------------
 
+* Add ``Pattern.structure()``: a hierarchical, version-tagged structural view
+  of a pattern that preserves the AND/OR/FOLLOWEDBY nesting, attribute paths,
+  qualifier ownership and source positions, without changing the flat
+  ``inspect()`` output
 * Update to ANTLR 4.13 (@brianatdetections)
 * Add Python 3.13 & Python 3.14 support
 * Add automated grammar regeneration script

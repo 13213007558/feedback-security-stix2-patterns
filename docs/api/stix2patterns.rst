@@ -20,6 +20,14 @@ stix2patterns.inspector module
     :undoc-members:
     :show-inheritance:
 
+stix2patterns.structural module
+-------------------------------
+
+.. automodule:: stix2patterns.structural
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 stix2patterns.pattern module
 ----------------------------
 

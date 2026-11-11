@@ -4,6 +4,7 @@ from ..exceptions import ParseException, ParserErrorListener
 from .grammars.STIXPatternLexer import STIXPatternLexer
 from .grammars.STIXPatternParser import STIXPatternParser
 from .inspector import InspectionListener
+from .structural import StructuralPatternVisitor
 
 
 class Pattern(object):
@@ -31,6 +32,25 @@ class Pattern(object):
         self.walk(inspector)
 
         return inspector.pattern_data()
+
+    def structure(self):
+        """
+        Produce a hierarchical, version-tagged description of the pattern.
+
+        Unlike :meth:`inspect`, the nesting of the observation-level
+        AND/OR/FOLLOWEDBY and in-bracket comparison expressions is preserved,
+        along with each attribute path and the observation expression that
+        every WITHIN/REPEATS/START ... STOP qualifier belongs to.  Every node
+        carries source-location information so callers can point problems back
+        at the original expression.
+
+        This is a static structural view; it does not evaluate the pattern
+        against any data.
+
+        :return: A plain dict/list structure describing the pattern
+        """
+        visitor = StructuralPatternVisitor()
+        return self.visit(visitor)
 
     def walk(self, listener):
         """Walk the parse tree, using the given listener.  The listener
